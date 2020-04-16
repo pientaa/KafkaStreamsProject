@@ -7,19 +7,21 @@ import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.streams.KafkaStreams
 import org.apache.kafka.streams.KeyValue
 import org.apache.kafka.streams.StreamsBuilder
+import org.apache.kafka.streams.StreamsConfig
 import org.apache.kafka.streams.kstream.Consumed
 import org.apache.kafka.streams.kstream.KStream
 import org.apache.kafka.streams.kstream.Produced
+import org.apache.kafka.streams.kstream.TimeWindows
+import java.io.File
 import java.time.LocalDateTime
 import java.util.*
-
+import java.util.concurrent.TimeUnit
 
 fun main(args: Array<String>) {
     KafkaConsumer("localhost:9092").process()
 }
 
-
-class KafkaConsumer(val brokers: String) {
+class KafkaConsumer(private val brokers: String) {
 
     private val jsonMapper = ObjectMapper().apply {
         registerKotlinModule()
@@ -29,32 +31,82 @@ class KafkaConsumer(val brokers: String) {
         val streamsBuilder = StreamsBuilder()
 
         val tripJsonStream: KStream<String, String> = streamsBuilder
-            .stream<String, String>("input-topic-2", Consumed.with(Serdes.String(), Serdes.String()))
+            .stream<String, String>("input-topic", Consumed.with(Serdes.String(), Serdes.String()))
 
         val tripStream: KStream<String, Trip> = tripJsonStream.mapValues { v ->
             jsonMapper.readValue(v, Trip::class.java)
         }
 
-        val resStream: KStream<String, String> = tripStream
-            .map { _, t ->
-                KeyValue("${t.id} ${t.gender}", "${t.eventTime}")
-            }
+        val trips = tripStream
+            .map { _, v -> KeyValue("${v.stationId} ${v.eventTime.toLocalDate()}", jsonMapper.writeValueAsString(v)) }
 
-        resStream.to("output-topic", Produced.with(Serdes.String(), Serdes.String()))
+        val windowSizeMs = TimeUnit.MINUTES.toMillis(5)
+        val advanceMs = TimeUnit.MINUTES.toMillis(1)
+
+        val startTrips = trips
+            .filter { _, v -> jsonMapper.readValue(v, Trip::class.java).eventType == 0 }
+            .groupByKey()
+            .windowedBy(TimeWindows.of(windowSizeMs).advanceBy(advanceMs)) /* time-based window */
+            .count()
+
+        val endTrips = trips
+            .filter { _, v -> jsonMapper.readValue(v, Trip::class.java).eventType == 1 }
+            .groupByKey()
+            .windowedBy(TimeWindows.of(TimeUnit.MINUTES.toMillis(5)) /* time-based window */)
+            .count()
+
+        val joinedStreams = startTrips.join(endTrips) { left, right -> "Started: $left, Ended: $right" }.toStream()
+            .map { k, v ->
+                KeyValue(k.key(), "Key: ${k.key()}, Value: $v")
+            }
+            .to("output-topic-2", Produced.with(Serdes.String(), Serdes.String()))
+
         val topology = streamsBuilder.build()
 
         val props = Properties()
         props["bootstrap.servers"] = brokers
         props["application.id"] = "kafka-tutorial"
+        props[StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG] = Serdes.String()::class.java
+        props[StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG] = Serdes.String()::class.java
+        props[StreamsConfig.DEFAULT_TIMESTAMP_EXTRACTOR_CLASS_CONFIG] = MyEventTimeExtractor::class.java
+
         val streams = KafkaStreams(topology, props)
         streams.start()
     }
 
+    fun produce(): Sequence<Station> =
+        File("./src/com/bigdata/resources/Divvy_Bicycle_Stations.csv")
+            .let {
+                sequence {
+                    it.useLines { lines ->
+                        lines.forEach { yield(it) }
+                    }
+                }
+            }.filter { !it.contains("ID") }
+            .map { line ->
+                line.split(',').let {
+                    Station(
+                        it[0].toInt(), it[1], it[2].toInt(), it[3].toInt(),
+                        it[4], it[5].toDouble(), it[6].toDouble(), it[7]
+                    )
+                }
+            }
 }
+
+data class Station(
+    val id: Int,
+    val name: String,
+    val totalDocks: Int,
+    val docksInService: Int,
+    val status: String,
+    val latitude: Double,
+    val longitude: Double,
+    val location: String
+)
 
 data class Trip(
     val id: Int,
-    val start_stop: String,
+    val eventType: Int,  //start_stop – czy rozpoczęcie (0) czy zakończenie (1) przejazdu
     val eventTime: LocalDateTime,
     val stationId: Int,
     val duration: Double,
