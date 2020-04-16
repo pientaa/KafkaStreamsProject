@@ -4,14 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import org.apache.kafka.common.serialization.Serdes
+import org.apache.kafka.common.utils.Bytes
 import org.apache.kafka.streams.KafkaStreams
 import org.apache.kafka.streams.KeyValue
 import org.apache.kafka.streams.StreamsBuilder
 import org.apache.kafka.streams.StreamsConfig
-import org.apache.kafka.streams.kstream.Consumed
-import org.apache.kafka.streams.kstream.KStream
-import org.apache.kafka.streams.kstream.Produced
-import org.apache.kafka.streams.kstream.TimeWindows
+import org.apache.kafka.streams.kstream.*
+import org.apache.kafka.streams.state.WindowStore
 import java.io.File
 import java.time.LocalDateTime
 import java.util.*
@@ -31,7 +30,7 @@ class KafkaConsumer(private val brokers: String) {
         val streamsBuilder = StreamsBuilder()
 
         val tripJsonStream: KStream<String, String> = streamsBuilder
-            .stream<String, String>("input-topic", Consumed.with(Serdes.String(), Serdes.String()))
+            .stream<String, String>("input-topic-3", Consumed.with(Serdes.String(), Serdes.String()))
 
         val tripStream: KStream<String, Trip> = tripJsonStream.mapValues { v ->
             jsonMapper.readValue(v, Trip::class.java)
@@ -40,26 +39,26 @@ class KafkaConsumer(private val brokers: String) {
         val trips = tripStream
             .map { _, v -> KeyValue("${v.stationId} ${v.eventTime.toLocalDate()}", jsonMapper.writeValueAsString(v)) }
 
-        val windowSizeMs = TimeUnit.MINUTES.toMillis(5)
-        val advanceMs = TimeUnit.MINUTES.toMillis(1)
+        val windowSizeMs = TimeUnit.HOURS.toMillis(24)
+        val advanceMs = TimeUnit.MINUTES.toMillis(5)
 
         val startTrips = trips
             .filter { _, v -> jsonMapper.readValue(v, Trip::class.java).eventType == 0 }
             .groupByKey()
             .windowedBy(TimeWindows.of(windowSizeMs).advanceBy(advanceMs)) /* time-based window */
-            .count()
+            .count(Materialized.`as`<String, Long, WindowStore<Bytes, ByteArray>>("startTripsStore-2"))
 
         val endTrips = trips
             .filter { _, v -> jsonMapper.readValue(v, Trip::class.java).eventType == 1 }
             .groupByKey()
-            .windowedBy(TimeWindows.of(TimeUnit.MINUTES.toMillis(5)) /* time-based window */)
-            .count()
+            .windowedBy(TimeWindows.of(windowSizeMs).advanceBy(advanceMs)) /* time-based window */
+            .count(Materialized.`as`<String, Long, WindowStore<Bytes, ByteArray>>("endTripsStore-2"))
 
         val joinedStreams = startTrips.join(endTrips) { left, right -> "Started: $left, Ended: $right" }.toStream()
             .map { k, v ->
                 KeyValue(k.key(), "Key: ${k.key()}, Value: $v")
             }
-            .to("output-topic-2", Produced.with(Serdes.String(), Serdes.String()))
+            .to("output-topic-3", Produced.with(Serdes.String(), Serdes.String()))
 
         val topology = streamsBuilder.build()
 
