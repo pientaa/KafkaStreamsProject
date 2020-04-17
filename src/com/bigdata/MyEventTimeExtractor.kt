@@ -17,7 +17,7 @@ class MyEventTimeExtractor : TimestampExtractor {
         val stringLine: String
         if (record.value() is String) {
             stringLine = record.value() as String
-            timestamp = jsonMapper.readValue(stringLine, Trip::class.java).eventTime.toMillis()
+            timestamp = jsonMapper.readValue(stringLine, Trip::class.java).eventTime.withHour(0).toMillis()
         }
         return timestamp
     }
