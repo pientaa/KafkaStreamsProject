@@ -25,10 +25,6 @@ fun main(args: Array<String>) {
 
 class KafkaConsumer(private val brokers: String) {
 
-    private val jsonMapper = ObjectMapper().apply {
-        registerKotlinModule()
-    }.registerModule(JavaTimeModule())
-
     fun process() {
         val streamsBuilder = StreamsBuilder()
 
@@ -119,6 +115,10 @@ data class Station(
     val location: String
 )
 
+val jsonMapper = ObjectMapper().apply {
+    registerKotlinModule()
+}.registerModule(JavaTimeModule())
+
 data class Trip(
     val id: Int,
     val eventType: Int,  //start_stop – czy rozpoczęcie (0) czy zakończenie (1) przejazdu
@@ -130,4 +130,8 @@ data class Trip(
     val week: Int,
     val temperature: Double,
     val events: String
-)
+) {
+    override fun toString(): String {
+        return jsonMapper.writeValueAsString(this)
+    }
+}
