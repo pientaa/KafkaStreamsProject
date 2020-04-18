@@ -33,9 +33,10 @@ class KafkaConsumer(private val brokers: String) {
         val streamsBuilder = StreamsBuilder()
 
         val tripJsonStream: KStream<String, String> = streamsBuilder
-            .stream<String, String>("input-topic-1", Consumed.with(Serdes.String(), Serdes.String()))
+            .stream<String, String>("input-topic", Consumed.with(Serdes.String(), Serdes.String()))
 
         val tripStream: KStream<String, Trip> = tripJsonStream.mapValues { v ->
+            println(v)
             jsonMapper.readValue(v, Trip::class.java)
         }
 
@@ -46,14 +47,14 @@ class KafkaConsumer(private val brokers: String) {
             .filter { _, v -> jsonMapper.readValue(v, Trip::class.java).eventType == 0 }
             .map { k, v -> KeyValue("$k start", v) }
             .groupByKey()
-            .windowedBy(TimeWindows.of(Duration.ofDays(1)))
+            .windowedBy(TimeWindows.of(TimeUnit.MINUTES.toMillis(5)))
             .count(Materialized.`as`<String, Long, WindowStore<Bytes, ByteArray>>("startTripsStore-8"))
 
         val endTrips = trips
             .filter { _, v -> jsonMapper.readValue(v, Trip::class.java).eventType == 1 }
             .map { k, v -> KeyValue("$k end", v) }
             .groupByKey()
-            .windowedBy(TimeWindows.of(Duration.ofDays(1)))
+            .windowedBy(TimeWindows.of(TimeUnit.MINUTES.toMillis(5)))
 //            .windowedBy(TimeWindows.of(Duration.ofHours(24)).advanceBy(Duration.ofMinutes(20)))
             .count(Materialized.`as`<String, Long, WindowStore<Bytes, ByteArray>>("endTripsStore-8"))
 
@@ -73,7 +74,7 @@ class KafkaConsumer(private val brokers: String) {
             }
             .map { k, v -> KeyValue(k, "Key: $k, Value: $v") }
 
-            .to("output-topic-1", Produced.with(Serdes.String(), Serdes.String()))
+            .to("output-topic", Produced.with(Serdes.String(), Serdes.String()))
 
         val topology = streamsBuilder.build()
 
