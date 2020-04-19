@@ -78,6 +78,7 @@ class KafkaSecondConsumer(private val brokers: String) {
             .groupByKey()
             .reduce { _, new -> new }
             .toStream()
+            .through("aggregates")
             .foreach { key, value ->
                 println("Key: $key, value: $value")
             }
@@ -142,6 +143,7 @@ class KafkaSecondConsumer(private val brokers: String) {
             .groupByKey()
             .reduce { _, new -> new }
             .toStream()
+            .through("anomalies")
             .foreach { key, value ->
                 println("Key: $key, value: $value")
             }

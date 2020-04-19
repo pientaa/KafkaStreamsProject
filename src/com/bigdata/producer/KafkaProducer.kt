@@ -34,6 +34,7 @@ class KafkaProducer(brokers: String) {
         val files = File("./src/com/bigdata/resources/producer")
 
         files.walkTopDown()
+            .sortedBy { it.absolutePath }
             .filter { it.isFile }
             .flatMap { file ->
                 sequence {
@@ -51,7 +52,6 @@ class KafkaProducer(brokers: String) {
                     )
                 }
             }
-            .filter { it.stationId == 283 }
             .forEach {
                 val trip = jsonMapper.writeValueAsString(it)
                 val futureResult = producer.send(ProducerRecord("input-topic", trip))
