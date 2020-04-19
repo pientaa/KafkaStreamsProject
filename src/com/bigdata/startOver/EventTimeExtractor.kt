@@ -1,7 +1,9 @@
 package com.bigdata.startOver
 
-import com.bigdata.Trip
-import com.bigdata.toMillis
+import com.bigdata.startOver.lib.toMillis
+import com.bigdata.startOver.model.ConsumerDateKey
+import com.bigdata.startOver.model.ConsumerDateTimeKey
+import com.bigdata.startOver.model.Trip
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
