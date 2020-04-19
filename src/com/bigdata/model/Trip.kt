@@ -1,12 +1,12 @@
-package com.bigdata.startOver.model
+package com.bigdata.model
 
-import com.bigdata.startOver.lib.jsonMapper
+import com.bigdata.lib.jsonMapper
 import java.time.LocalDateTime
 
 data class Trip(
     val id: Int,
-    val eventType: Int,  //start_stop – czy rozpoczęcie (0) czy zakończenie (1) przejazdu
-    val eventTime: LocalDateTime,
+    val type: Int,  //start_stop – czy rozpoczęcie (0) czy zakończenie (1) przejazdu
+    val dateTime: LocalDateTime,
     val stationId: Int,
     val duration: Double,
     val userType: String,

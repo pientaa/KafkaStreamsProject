@@ -1,10 +1,10 @@
-package com.bigdata.startOver.model
+package com.bigdata.model
 
 data class Station(
     val id: Int,
     val name: String,
-    val totalDocks: Int,
-    val docksInService: Int,
+    val totalDocks: Long,
+    val docksInService: Long,
     val status: String,
     val latitude: Double,
     val longitude: Double,

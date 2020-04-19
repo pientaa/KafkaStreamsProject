@@ -1,4 +1,4 @@
-package com.bigdata.startOver.lib
+package com.bigdata.lib
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule

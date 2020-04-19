@@ -1,4 +1,4 @@
-package com.bigdata.startOver.model
+package com.bigdata.model
 
 import java.time.LocalDateTime
 
@@ -8,6 +8,6 @@ data class ConsumerDateTimeKey(
 ) {
     constructor(trip: Trip) : this(
         stationId = trip.stationId,
-        eventTime = trip.eventTime
+        eventTime = trip.dateTime
     )
 }

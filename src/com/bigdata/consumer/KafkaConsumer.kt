@@ -1,15 +1,16 @@
-package com.bigdata.startOver
+package com.bigdata.consumer
 
-import com.bigdata.startOver.lib.jsonMapper
-import com.bigdata.startOver.model.*
+import com.bigdata.lib.jsonMapper
+import com.bigdata.model.*
+import com.bigdata.model.anomalyDetection.EndedTripStationCount
+import com.bigdata.model.anomalyDetection.StartedTripStationCount
+import com.bigdata.model.anomalyDetection.TripStationSummaryInfo
 import org.apache.kafka.common.serialization.Serdes
-import org.apache.kafka.common.utils.Bytes
 import org.apache.kafka.streams.KafkaStreams
 import org.apache.kafka.streams.KeyValue
 import org.apache.kafka.streams.StreamsBuilder
 import org.apache.kafka.streams.StreamsConfig
 import org.apache.kafka.streams.kstream.*
-import org.apache.kafka.streams.state.WindowStore
 import java.io.File
 import java.time.Duration
 import java.util.*
@@ -23,7 +24,7 @@ class KafkaSecondConsumer(private val brokers: String) {
     fun process() {
         val streamsBuilder = StreamsBuilder()
 
-        val stations = getStations()
+        val stations = getStations().toList()
 
         val tripJsonStream: KStream<String, String> = streamsBuilder
             .stream<String, String>("input-topic", Consumed.with(Serdes.String(), Serdes.String()))
@@ -31,19 +32,19 @@ class KafkaSecondConsumer(private val brokers: String) {
         val tripStream: KStream<ConsumerDateTimeKey, Trip> = tripJsonStream.map { _, v ->
             val value = jsonMapper.readValue(v, Trip::class.java)
             val key = ConsumerDateTimeKey(value)
-            println("Key: $key, value: $value")
+//            println("Key: $key, value: $value")
             KeyValue(key, value)
         }
 
-        val endedTrips: KTable<Windowed<String>, Long> = tripStream
-            .filter { _, v -> v.eventType == 0 }
+        val dailyEndedTrips: KTable<Windowed<String>, Long> = tripStream
+            .filter { _, v -> v.type == 0 }
             .map { k, v -> KeyValue(k, v.toString()) }
             .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
             .windowedBy(TimeWindows.of(Duration.ofDays(1))/*.advanceBy(Duration.ofMinutes(5))*/.grace(Duration.ZERO))
             .count(/*Materialized.`as`<String, Long, WindowStore<Bytes, ByteArray>>("EndedTripsCountStore")*/)
 
-        val startedTrips: KTable<Windowed<String>, Long> = tripStream
-            .filter { _, v -> v.eventType == 1 }
+        val dailyStartedTrips: KTable<Windowed<String>, Long> = tripStream
+            .filter { _, v -> v.type == 1 }
             .map { k, v -> KeyValue(k, v.toString()) }
             .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
             .windowedBy(TimeWindows.of(Duration.ofDays(1))/*.advanceBy(Duration.ofMinutes(5))*/.grace(Duration.ZERO))
@@ -67,12 +68,76 @@ class KafkaSecondConsumer(private val brokers: String) {
             )
 
         temperatureSum.join(temperatureCount) { sum, count -> sum.toDouble() / count.toDouble() }
-            .join(startedTrips) { t, s -> Pair(t, s) }
-            .join(endedTrips) { agg, e -> Triple(agg.first, agg.second, e) }
+            .join(dailyStartedTrips) { t, s -> Pair(t, s) }
+            .join(dailyEndedTrips) { agg, e -> Triple(agg.first, agg.second, e) }
             .toStream()
             .map { k, v ->
                 val key = jsonMapper.readValue(k.key(), ConsumerDateKey::class.java)
                 KeyValue(k.key(), jsonMapper.writeValueAsString(AggregatedInfo(key, v.first, v.second, v.third)))
+            }
+            .groupByKey()
+            .reduce { _, new -> new }
+            .toStream()
+            .foreach { key, value ->
+                println("Key: $key, value: $value")
+            }
+
+        //------------------------------------ anomalies --------------------------------------------------------------
+
+        val P = 50L
+        val D = 60L
+
+        val tripStationStream: KStream<ConsumerDateTimeKey, TripStation> = tripJsonStream.map { _, v ->
+            val trip = jsonMapper.readValue(v, Trip::class.java)
+            val value = stations.firstOrNull { it.id == trip.stationId }?.let { TripStation(trip, it) }
+            val key = ConsumerDateTimeKey(trip)
+            println("Key: $key, value: $value")
+            KeyValue(key, value)
+        }
+
+        val endedTripPerHour: KTable<Windowed<String>, String> = tripStationStream
+            .filter { _, v -> v.tripType == 0 }
+            .map { k, v -> KeyValue(k, v.toString()) }
+            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
+            .windowedBy(TimeWindows.of(Duration.ofMinutes(D))/*.advanceBy(Duration.ofMinutes(5))*/.grace(Duration.ZERO))
+            .aggregate(
+                { EndedTripStationCount().toString() },
+                { _, newV, aggV ->
+                    val tripStation = jsonMapper.readValue(newV, TripStation::class.java)
+                    val aggregate = jsonMapper.readValue(aggV, EndedTripStationCount::class.java)
+                    EndedTripStationCount(tripStation).copy(ended = aggregate.ended + 1L).toString()
+                }
+            )
+
+        val startedTripsPerHour: KTable<Windowed<String>, String> = tripStationStream
+            .filter { _, v -> v.tripType == 1 }
+            .map { k, v -> KeyValue(k, v.toString()) }
+            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
+            .windowedBy(TimeWindows.of(Duration.ofMinutes(D))/*.advanceBy(Duration.ofMinutes(5))*/.grace(Duration.ZERO))
+            .aggregate(
+                { StartedTripStationCount().toString() },
+                { _, newV, aggV ->
+                    val tripStation = jsonMapper.readValue(newV, TripStation::class.java)
+                    val aggregate = jsonMapper.readValue(aggV, StartedTripStationCount::class.java)
+                    StartedTripStationCount(tripStation).copy(started = aggregate.started + 1L).toString()
+                }
+            )
+
+        startedTripsPerHour.join(endedTripPerHour) { started, ended -> Pair(started, ended) }
+            .toStream()
+            .map { k, v ->
+                val pair = Pair(
+                    jsonMapper.readValue(v.first, StartedTripStationCount::class.java),
+                    jsonMapper.readValue(v.second, EndedTripStationCount::class.java)
+                )
+                KeyValue(k.key(), TripStationSummaryInfo(k.window(), pair))
+            }
+//                UNCOMMENT IF YOU WANT TO FILTER ONLY ANOMALIES
+//            .filter { _, v ->
+//                v.nToDocksRatio > P / 100.0
+//            }
+            .map { k, v ->
+                KeyValue(k, v.toString())
             }
             .groupByKey()
             .reduce { _, new -> new }
@@ -107,7 +172,7 @@ class KafkaSecondConsumer(private val brokers: String) {
             .map { line ->
                 line.split(',').let {
                     Station(
-                        it[0].toInt(), it[1], it[2].toInt(), it[3].toInt(),
+                        it[0].toInt(), it[1], it[2].toLong(), it[3].toLong(),
                         it[4], it[5].toDouble(), it[6].toDouble(), it[7]
                     )
                 }

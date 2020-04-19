@@ -1,9 +1,9 @@
-package com.bigdata.startOver
+package com.bigdata.consumer
 
-import com.bigdata.startOver.lib.toMillis
-import com.bigdata.startOver.model.ConsumerDateKey
-import com.bigdata.startOver.model.ConsumerDateTimeKey
-import com.bigdata.startOver.model.Trip
+import com.bigdata.lib.toMillis
+import com.bigdata.model.ConsumerDateKey
+import com.bigdata.model.ConsumerDateTimeKey
+import com.bigdata.model.Trip
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
@@ -22,7 +22,7 @@ class EventTimeExtractor : TimestampExtractor {
         if (record.value() is String) {
             value = record.value() as String
             timestamp = when (record.key()) {
-                is ConsumerDateKey -> jsonMapper.readValue(value, Trip::class.java).eventTime.toMillis()
+                is ConsumerDateKey -> jsonMapper.readValue(value, Trip::class.java).dateTime.toMillis()
                 is ConsumerDateTimeKey -> {
                     LocalDateTime.of(
                         jsonMapper.readValue(record.key() as String, ConsumerDateKey::class.java).eventDay,
@@ -30,7 +30,7 @@ class EventTimeExtractor : TimestampExtractor {
                     ).toMillis()
                 }
                 else ->
-                    jsonMapper.readValue(value, Trip::class.java).eventTime.toMillis()
+                    jsonMapper.readValue(value, Trip::class.java).dateTime.toMillis()
             }
         }
         return timestamp

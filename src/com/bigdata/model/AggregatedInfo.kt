@@ -1,4 +1,4 @@
-package com.bigdata.startOver.model
+package com.bigdata.model
 
 data class AggregatedInfo(
     val consumerDateKey: ConsumerDateKey,
