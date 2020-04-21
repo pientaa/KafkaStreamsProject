@@ -3,11 +3,11 @@ package com.bigdata.model
 import java.time.LocalDate
 
 data class ConsumerDateKey(
-    val stationId: Int,
+    val stationName: String,
     val eventDay: LocalDate
 ) {
     constructor(consumerDateTimeKey: ConsumerDateTimeKey) : this(
-        stationId = consumerDateTimeKey.stationId,
+        stationName = consumerDateTimeKey.stationName,
         eventDay = consumerDateTimeKey.eventTime.toLocalDate()
     )
 }
