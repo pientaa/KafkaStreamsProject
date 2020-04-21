@@ -4,6 +4,7 @@ import com.bigdata.lib.toMillis
 import com.bigdata.model.ConsumerDateKey
 import com.bigdata.model.ConsumerDateTimeKey
 import com.bigdata.model.Trip
+import com.bigdata.model.TripStation
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
@@ -23,14 +24,8 @@ class EventTimeExtractor : TimestampExtractor {
             value = record.value() as String
             timestamp = when (record.key()) {
                 is ConsumerDateKey -> jsonMapper.readValue(value, Trip::class.java).dateTime.toMillis()
-                is ConsumerDateTimeKey -> {
-                    LocalDateTime.of(
-                        jsonMapper.readValue(record.key() as String, ConsumerDateKey::class.java).eventDay,
-                        LocalTime.MIN
-                    ).toMillis()
-                }
-                else ->
-                    jsonMapper.readValue(value, Trip::class.java).dateTime.toMillis()
+                is ConsumerDateTimeKey -> jsonMapper.readValue(value, TripStation::class.java).tripTime.toMillis()
+                else -> jsonMapper.readValue(value, Trip::class.java).dateTime.toMillis()
             }
         }
         return timestamp

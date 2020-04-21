@@ -14,14 +14,14 @@ data class TripStationSummaryInfo(
     val totalDocks: Long,
     val nToDocksRatio: Double
 ) {
-    constructor(window: Window, tsCount: Pair<StartedTripStationCount, EndedTripStationCount>) : this(
+    constructor(window: Window, tsCount: TripStationCount) : this(
         window = "Window(start=${LocalDateTime.ofInstant(window.startTime(), TimeZone.getDefault().toZoneId())}," +
                 " end=${LocalDateTime.ofInstant(window.endTime(), TimeZone.getDefault().toZoneId())})",
-        stationName = tsCount.first.stationName,
-        returnedOverRented = if (tsCount.second.ended > tsCount.first.started) tsCount.second.ended - tsCount.first.started else 0,
-        rentedOverReturned = if (tsCount.second.ended < tsCount.first.started) tsCount.first.started - tsCount.second.ended else 0,
-        totalDocks = tsCount.first.totalDocks,
-        nToDocksRatio = abs(tsCount.second.ended - tsCount.first.started).toDouble() / tsCount.first.totalDocks.toDouble()
+        stationName = tsCount.stationName,
+        returnedOverRented = if (tsCount.ended > tsCount.started) tsCount.ended - tsCount.started else 0,
+        rentedOverReturned = if (tsCount.ended < tsCount.started) tsCount.started - tsCount.ended else 0,
+        totalDocks = tsCount.totalDocks,
+        nToDocksRatio = abs(tsCount.ended - tsCount.started).toDouble() / tsCount.totalDocks.toDouble()
     )
 
     override fun toString(): String {
