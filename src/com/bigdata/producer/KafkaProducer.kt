@@ -15,7 +15,11 @@ import java.time.format.DateTimeFormatter
 import java.util.*
 
 fun main(args: Array<String>) {
-    KafkaProducer("localhost:9092").produce(1)
+    args.forEach { println(it) }
+    var folder = "./../../../src/com/bigdata/resources/producer"
+    if (args.size > 1)
+        folder = args[1]
+    KafkaProducer("localhost:9092").produce(folder)
 }
 
 class KafkaProducer(brokers: String) {
@@ -28,10 +32,10 @@ class KafkaProducer(brokers: String) {
         registerKotlinModule()
     }.registerModule(JavaTimeModule())
 
-    fun produce(ratePerSecond: Int) {
-        val waitTimeBetweenIterationsMs = 1000L / ratePerSecond
+    fun produce(folder: String) {
+//        val waitTimeBetweenIterationsMs = 1000L / ratePerSecond
 
-        val files = File("./src/com/bigdata/resources/producer")
+        val files = File(folder)
 
         files.walkTopDown()
             .sortedBy { it.absolutePath }
@@ -55,7 +59,7 @@ class KafkaProducer(brokers: String) {
             .forEach {
                 val trip = jsonMapper.writeValueAsString(it)
                 val futureResult = producer.send(ProducerRecord("input-topic", trip))
-                Thread.sleep(waitTimeBetweenIterationsMs)
+                Thread.sleep(100)
                 futureResult.get()
                 println(it)
             }

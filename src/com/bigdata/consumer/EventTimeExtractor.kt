@@ -23,7 +23,7 @@ class EventTimeExtractor : TimestampExtractor {
         if (record.value() is String) {
             value = record.value() as String
             timestamp = when (record.key()) {
-                is ConsumerDateKey -> jsonMapper.readValue(value, Trip::class.java).dateTime.toMillis()
+                is ConsumerDateKey -> jsonMapper.readValue(value, TripStation::class.java).tripTime.toMillis()
                 is ConsumerDateTimeKey -> jsonMapper.readValue(value, TripStation::class.java).tripTime.toMillis()
                 else -> jsonMapper.readValue(value, Trip::class.java).dateTime.toMillis()
             }

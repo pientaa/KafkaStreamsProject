@@ -15,25 +15,29 @@ import org.apache.kafka.streams.kstream.Suppressed.BufferConfig.unbounded
 import org.apache.kafka.streams.state.WindowStore
 import java.io.File
 import java.time.Duration
+import java.time.LocalDateTime
 import java.util.*
 
 fun main(args: Array<String>) {
+    args.forEach { println(it) }
     var P: Long = 50L
     var D: Long = 60L
-    if (args.size > 1) {
-        P = args[0].toLong()
-        D = args[1].toLong()
+    var file = "./../../../src/com/bigdata/resources/Divvy_Bicycle_Stations.cs"
+    if (args.size > 2) {
+        file = args[0]
+        P = args[1].toLong()
+        D = args[2].toLong()
     }
 
-    KafkaConsumer("localhost:9092").process(P, D)
+    KafkaConsumer("localhost:9092").process(P, D, file)
 }
 
 class KafkaConsumer(private val brokers: String) {
 
-    fun process(P: Long, D: Long) {
+    fun process(P: Long, D: Long, file: String) {
         val streamsBuilder = StreamsBuilder()
 
-        val stations = getStations().toList()
+        val stations = getStations(file).toList()
 
         val tripJsonStream: KStream<String, String> = streamsBuilder
             .stream<String, String>("input-topic", Consumed.with(Serdes.String(), Serdes.String()))
@@ -46,11 +50,11 @@ class KafkaConsumer(private val brokers: String) {
             KeyValue(key, value)
         }
 
-        val foo = tripStream
+        val etl = tripStream
             .map { k, v -> KeyValue(k, v.toString()) }
             .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
             .windowedBy(
-                TimeWindows.of(Duration.ofDays(1)).advanceBy(Duration.ofMinutes(5)).grace(Duration.ofMillis(0))
+                TimeWindows.of(Duration.ofDays(1)).advanceBy(Duration.ofMinutes(5))
             )
             .aggregate(
                 { AggregatedInfo().toString() },
@@ -70,99 +74,25 @@ class KafkaConsumer(private val brokers: String) {
                     ).toString()
                 },
                 Materialized.`as`<String, String, WindowStore<Bytes, ByteArray>>("etl-store")
-                    .withCachingDisabled().withKeySerde(Serdes.String()).withValueSerde(Serdes.String())
+                    .withKeySerde(Serdes.String()).withValueSerde(Serdes.String())
             )
             .suppress(Suppressed.untilWindowCloses(unbounded()))
 
-        foo.toStream()
-            .foreach { k, v ->
-                println(v)
-            }
-
-        val dailyEndedTrips: KTable<Windowed<String>, Long> = tripStream
-            .filter { _, v -> v.tripType == 0 }
-            .map { k, v -> KeyValue(k, v.toString()) }
-            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
-            .windowedBy(TimeWindows.of(Duration.ofDays(1))/*.advanceBy(Duration.ofMinutes(5))*/.grace(Duration.ZERO))
-            .count(/*Materialized.`as`<String, Long, WindowStore<Bytes, ByteArray>>("EndedTripsCountStore")*/)
-
-        val dailyStartedTrips: KTable<Windowed<String>, Long> = tripStream
-            .filter { _, v -> v.tripType == 1 }
-            .map { k, v -> KeyValue(k, v.toString()) }
-            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
-            .windowedBy(TimeWindows.of(Duration.ofDays(1))/*.advanceBy(Duration.ofMinutes(5))*/.grace(Duration.ZERO))
-            .count(/*Materialized.`as`<String, Long, WindowStore<Bytes, ByteArray>>("StartedTripsCountStore")*/)
-
-        val temperatureCount = tripStream
-            .map { k, v -> KeyValue(k, v.toString()) }
-            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
-            .windowedBy(TimeWindows.of(Duration.ofDays(1))/*.advanceBy(Duration.ofMinutes(5))*/.grace(Duration.ZERO))
-            .count(/*Materialized.`as`<String, Long, WindowStore<Bytes, ByteArray>>("temperature-count-store")*/)
-
-        val temperatureSum = tripStream
-            .map { k, v -> KeyValue(k, v.temperature.toString()) }
-            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
-            .windowedBy(TimeWindows.of(Duration.ofDays(1))/*.advanceBy(Duration.ofMinutes(5))*/.grace(Duration.ZERO))
-            .aggregate(
-                { 0.0.toString() },
-                { _, newV, aggV -> (aggV.toDouble() + newV.toDouble()).toString() }//,
-//                Materialized.`as`<String, Double, WindowStore<Bytes, ByteArray>>("temperature-sum-store")
-//                    .withValueSerde(Serdes.Double())
-            )
-
-        temperatureSum.join(temperatureCount) { sum, count -> sum.toDouble() / count.toDouble() }
-            .join(dailyStartedTrips) { t, s -> Pair(t, s) }
-            .join(dailyEndedTrips) { agg, e -> Triple(agg.first, agg.second, e) }
-            .toStream()
-            .map { k, v ->
-                val key = jsonMapper.readValue(k.key(), ConsumerDateKey::class.java)
-                KeyValue(k.key(), jsonMapper.writeValueAsString(AggregatedInfo(key, v.first, v.second, v.third)))
-            }
-            .groupByKey()
-            .reduce { _, new -> new }
-            .toStream()
+        etl.toStream()
             .through("etl-topic")
-            .foreach { key, value ->
-//                println("Key: $key, value: $value")
+            .foreach { k, v ->
+                val window = k.window()
+                println(
+                    "Window(start=${LocalDateTime.ofInstant(window.startTime(), TimeZone.getDefault().toZoneId())}," +
+                            " end=${LocalDateTime.ofInstant(window.endTime(), TimeZone.getDefault().toZoneId())}) $v"
+                )
             }
-
-        //------------------------------------ anomalies --------------------------------------------------------------
-//
-//        val endedTripPerHour: KTable<Windowed<String>, String> = tripStream
-//            .filter { _, v -> v.tripType == 0 }
-//            .map { k, v -> KeyValue(k, v.toString()) }
-//            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
-//            .windowedBy(TimeWindows.of(Duration.ofMinutes(D)).advanceBy(Duration.ofMinutes(5)).grace(Duration.ZERO))
-//            .aggregate(
-//                { EndedTripStationCount().toString() },
-//                { _, newV, aggV ->
-//                    val tripStation = jsonMapper.readValue(newV, TripStation::class.java)
-//                    val aggregate = jsonMapper.readValue(aggV, EndedTripStationCount::class.java)
-//                    EndedTripStationCount(tripStation).copy(ended = aggregate.ended + 1L).toString()
-//                }
-//            )
-//            .suppress(Suppressed.untilWindowCloses(unbounded()))
-//
-//        val startedTripsPerHour: KTable<Windowed<String>, String> = tripStream
-//            .filter { _, v -> v.tripType == 1 }
-//            .map { k, v -> KeyValue(k, v.toString()) }
-//            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
-//            .windowedBy(TimeWindows.of(Duration.ofMinutes(D)).advanceBy(Duration.ofMinutes(5)).grace(Duration.ZERO))
-//            .aggregate(
-//                { StartedTripStationCount().toString() },
-//                { _, newV, aggV ->
-//                    val tripStation = jsonMapper.readValue(newV, TripStation::class.java)
-//                    val aggregate = jsonMapper.readValue(aggV, StartedTripStationCount::class.java)
-//                    StartedTripStationCount(tripStation).copy(started = aggregate.started + 1L).toString()
-//                }
-//            )
-//            .suppress(Suppressed.untilWindowCloses(unbounded()))
 
         val anomalies: KTable<Windowed<String>, String> = tripStream
             .map { k, v -> KeyValue(k, v.toString()) }
             .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
             .windowedBy(
-                TimeWindows.of(Duration.ofMinutes(D)).advanceBy(Duration.ofMinutes(5)).grace(Duration.ofMillis(0))
+                TimeWindows.of(Duration.ofMinutes(D)).advanceBy(Duration.ofMinutes(5))
             )
             .aggregate(
                 { TripStationCount().toString() },
@@ -185,46 +115,17 @@ class KafkaConsumer(private val brokers: String) {
             .filter { k, v ->
                 val tripStationCount = jsonMapper.readValue(v, TripStationCount::class.java)
                 val value = TripStationSummaryInfo(k.window(), tripStationCount)
+                println("$value")
                 value.nToDocksRatio > P / 100.0
-
-                true
+//                true
             }
             .map { k, v ->
-                val tripStationCount = jsonMapper.readValue(v, TripStationCount::class.java)
-                val value = TripStationSummaryInfo(k.window(), tripStationCount)
-//                println("$value")
-                KeyValue(k.key(), value.toString())
+//                val tripStationCount = jsonMapper.readValue(v, TripStationCount::class.java)
+//                val value = TripStationSummaryInfo(k.window(), tripStationCount)
+
+                KeyValue(k.key(), v.toString())
             }
             .to("anomalies-topic")
-//
-//        startedTripsPerHour.join(endedTripPerHour) { started, ended -> Pair(started, ended) }
-//            .toStream()
-//            .map { k, v ->
-//                val pair = Pair(
-//                    jsonMapper.readValue(v.first, StartedTripStationCount::class.java),
-//                    jsonMapper.readValue(v.second, EndedTripStationCount::class.java)
-//                )
-//                KeyValue(k.key(), TripStationSummaryInfo(k.window(), pair))
-//            }
-//                UNCOMMENT IF YOU WANT TO FILTER ONLY ANOMALIES
-//            .filter { _, v ->
-//                v.nToDocksRatio > P / 100.0
-//            }
-//            .foreach { key, value ->
-//                println("Window: $key, value: $value")
-//            }
-
-//            .map { k, v ->
-//                KeyValue(k, v.toString())
-//            }
-
-//            .groupByKey()
-//            .reduce { _, new -> new }
-//            .toStream()
-//            .through("anomalies-topic")
-//            .foreach { key, value ->
-//                println("Key: $key, value: $value")
-//            }
 
         val topology = streamsBuilder.build()
 
@@ -240,8 +141,8 @@ class KafkaConsumer(private val brokers: String) {
         streams.start()
     }
 
-    private fun getStations(): Sequence<Station> =
-        File("./src/com/bigdata/resources/Divvy_Bicycle_Stations.csv")
+    private fun getStations(file: String): Sequence<Station> =
+        File(file)
             .let {
                 sequence {
                     it.useLines { lines ->
