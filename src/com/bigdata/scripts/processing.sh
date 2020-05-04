@@ -9,4 +9,4 @@ cd $path
 
 java -cp KafkaStreamsProject.jar com.bigdata.consumer.KafkaConsumerKt ${FILE} ${P} ${D}
 
-#./processing.sh ./../../../src/com/bigdata/resources/Divvy_Bicycle_Stations.csv 10 10
+#./processing.sh ./../../../src/com/bigdata/resources/Divvy_Bicycle_Stations.csv 60 10

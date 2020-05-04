@@ -59,7 +59,7 @@ class KafkaProducer(brokers: String) {
             .forEach {
                 val trip = jsonMapper.writeValueAsString(it)
                 val futureResult = producer.send(ProducerRecord("input-topic", trip))
-                Thread.sleep(100)
+                Thread.sleep(500)
                 futureResult.get()
                 println(it)
             }
