@@ -22,7 +22,7 @@ fun main(args: Array<String>) {
     args.forEach { println(it) }
     var P: Long = 50L
     var D: Long = 60L
-    var file = "./../../../src/com/bigdata/resources/Divvy_Bicycle_Stations.cs"
+    var file = "./src/com/bigdata/resources/Divvy_Bicycle_Stations.csv"
     if (args.size > 2) {
         file = args[0]
         P = args[1].toLong()
@@ -87,45 +87,6 @@ class KafkaConsumer(private val brokers: String) {
                             " end=${LocalDateTime.ofInstant(window.endTime(), TimeZone.getDefault().toZoneId())}) $v"
                 )
             }
-
-        val anomalies: KTable<Windowed<String>, String> = tripStream
-            .map { k, v -> KeyValue(k, v.toString()) }
-            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
-            .windowedBy(
-                TimeWindows.of(Duration.ofMinutes(D)).advanceBy(Duration.ofMinutes(5))
-            )
-            .aggregate(
-                { TripStationCount().toString() },
-                { _, newV, aggV ->
-                    val tripStation = jsonMapper.readValue(newV, TripStation::class.java)
-                    val aggregated = jsonMapper.readValue(aggV, TripStationCount()::class.java)
-                    when (tripStation.tripType) {
-                        0 -> TripStationCount(tripStation).copy(ended = aggregated.ended + 1L).toString()
-                        1 -> TripStationCount(tripStation).copy(started = aggregated.started + 1L).toString()
-                        else -> aggregated.toString()
-                    }
-                },
-                Materialized.`as`<String, String, WindowStore<Bytes, ByteArray>>("anomalies-store")
-                    .withCachingDisabled().withKeySerde(Serdes.String()).withValueSerde(Serdes.String())
-            )
-            .suppress(Suppressed.untilWindowCloses(unbounded()))
-
-        anomalies
-            .toStream()
-            .filter { k, v ->
-                val tripStationCount = jsonMapper.readValue(v, TripStationCount::class.java)
-                val value = TripStationSummaryInfo(k.window(), tripStationCount)
-                println("$value")
-                value.nToDocksRatio > P / 100.0
-//                true
-            }
-            .map { k, v ->
-//                val tripStationCount = jsonMapper.readValue(v, TripStationCount::class.java)
-//                val value = TripStationSummaryInfo(k.window(), tripStationCount)
-
-                KeyValue(k.key(), v.toString())
-            }
-            .to("anomalies-topic")
 
         val topology = streamsBuilder.build()
 
