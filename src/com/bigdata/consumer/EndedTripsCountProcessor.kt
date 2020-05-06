@@ -8,7 +8,6 @@ import org.apache.kafka.streams.processor.ProcessorContext
 import org.apache.kafka.streams.processor.PunctuationType
 import org.apache.kafka.streams.state.WindowStore
 
-//DON'T USE IT YET
 @Suppress("DEPRECATION")
 class EndedTripsCountProcessor : Processor<String, String> {
     private var context: ProcessorContext? = null
@@ -19,7 +18,7 @@ class EndedTripsCountProcessor : Processor<String, String> {
         this.context = context
 
         // retrieve the key-value store named "Counts"
-        kvStore = context.getStateStore("EndedTripsCountStore") as WindowStore<Bytes, ByteArray>
+        kvStore = context.getStateStore("etl-store") as WindowStore<Bytes, ByteArray>
 
         // schedule a punctuate() method every 300_000 milliseconds based on stream-time
         this.context!!.schedule(300_000, PunctuationType.STREAM_TIME) {
