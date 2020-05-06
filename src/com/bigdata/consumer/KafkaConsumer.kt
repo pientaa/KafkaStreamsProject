@@ -1,28 +1,26 @@
 package com.bigdata.consumer
 
 import com.bigdata.lib.jsonMapper
-import com.bigdata.model.*
-import com.bigdata.model.anomalyDetection.TripStationCount
-import com.bigdata.model.anomalyDetection.TripStationSummaryInfo
+import com.bigdata.model.ConsumerDateTimeKey
+import com.bigdata.model.Station
+import com.bigdata.model.Trip
+import com.bigdata.model.TripStation
 import org.apache.kafka.common.serialization.Serdes
-import org.apache.kafka.common.utils.Bytes
 import org.apache.kafka.streams.KafkaStreams
 import org.apache.kafka.streams.KeyValue
 import org.apache.kafka.streams.StreamsBuilder
 import org.apache.kafka.streams.StreamsConfig
-import org.apache.kafka.streams.kstream.*
-import org.apache.kafka.streams.kstream.Suppressed.BufferConfig.unbounded
-import org.apache.kafka.streams.state.WindowStore
+import org.apache.kafka.streams.kstream.Consumed
+import org.apache.kafka.streams.kstream.KStream
+import org.apache.kafka.streams.state.Stores
 import java.io.File
-import java.time.Duration
-import java.time.LocalDateTime
 import java.util.*
 
 fun main(args: Array<String>) {
     args.forEach { println(it) }
     var P: Long = 50L
     var D: Long = 60L
-    var file = "./../../../src/com/bigdata/resources/Divvy_Bicycle_Stations.cs"
+    var file = "./src/com/bigdata/resources/Divvy_Bicycle_Stations.csv"
     if (args.size > 2) {
         file = args[0]
         P = args[1].toLong()
@@ -50,82 +48,18 @@ class KafkaConsumer(private val brokers: String) {
             KeyValue(key, value)
         }
 
-        val etl = tripStream
-            .map { k, v -> KeyValue(k, v.toString()) }
-            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
-            .windowedBy(
-                TimeWindows.of(Duration.ofDays(1)).advanceBy(Duration.ofMinutes(5))
-            )
-            .aggregate(
-                { AggregatedInfo().toString() },
-                { aggK, newV, aggV ->
-                    val key = jsonMapper.readValue(aggK, ConsumerDateKey::class.java)
-                    val tripStation = jsonMapper.readValue(newV, TripStation::class.java)
-                    val aggregated = jsonMapper.readValue(aggV, AggregatedInfo::class.java)
+        // create store
+        val storeBuilder =
+            Stores.keyValueStoreBuilder(Stores.persistentKeyValueStore("state-store"), Serdes.String(), Serdes.String())
+        //add store
+        streamsBuilder.addStateStore(storeBuilder)
 
-                    tripStation.let {
-                        when (tripStation.tripType) {
-                            1 -> aggregated.copy(consumerDateKey = key, startedTrips = aggregated.startedTrips + 1L)
-                            else -> aggregated.copy(consumerDateKey = key, endedTrips = aggregated.endedTrips + 1L)
-                        }
-                    }.copy(
-                        avgTemperature = ((aggregated.endedTrips + aggregated.startedTrips) * aggregated.avgTemperature + tripStation.temperature) /
-                                (aggregated.endedTrips + aggregated.startedTrips + 1)
-                    ).toString()
-                },
-                Materialized.`as`<String, String, WindowStore<Bytes, ByteArray>>("etl-store")
-                    .withKeySerde(Serdes.String()).withValueSerde(Serdes.String())
-            )
-            .suppress(Suppressed.untilWindowCloses(unbounded()))
-
-        etl.toStream()
-            .through("etl-topic")
+        tripStream
+            .map { k, v -> KeyValue(k.toString(), v.toString()) }
+            .transform({ CustomTransformer("state-store") }, arrayOf("state-store"))
             .foreach { k, v ->
-                val window = k.window()
-                println(
-                    "Window(start=${LocalDateTime.ofInstant(window.startTime(), TimeZone.getDefault().toZoneId())}," +
-                            " end=${LocalDateTime.ofInstant(window.endTime(), TimeZone.getDefault().toZoneId())}) $v"
-                )
+                println("$k, value: $v")
             }
-
-        val anomalies: KTable<Windowed<String>, String> = tripStream
-            .map { k, v -> KeyValue(k, v.toString()) }
-            .groupBy { consumerKey, _ -> jsonMapper.writeValueAsString(ConsumerDateKey(consumerKey)) }
-            .windowedBy(
-                TimeWindows.of(Duration.ofMinutes(D)).advanceBy(Duration.ofMinutes(5))
-            )
-            .aggregate(
-                { TripStationCount().toString() },
-                { _, newV, aggV ->
-                    val tripStation = jsonMapper.readValue(newV, TripStation::class.java)
-                    val aggregated = jsonMapper.readValue(aggV, TripStationCount()::class.java)
-                    when (tripStation.tripType) {
-                        0 -> TripStationCount(tripStation).copy(ended = aggregated.ended + 1L).toString()
-                        1 -> TripStationCount(tripStation).copy(started = aggregated.started + 1L).toString()
-                        else -> aggregated.toString()
-                    }
-                },
-                Materialized.`as`<String, String, WindowStore<Bytes, ByteArray>>("anomalies-store")
-                    .withCachingDisabled().withKeySerde(Serdes.String()).withValueSerde(Serdes.String())
-            )
-            .suppress(Suppressed.untilWindowCloses(unbounded()))
-
-        anomalies
-            .toStream()
-            .filter { k, v ->
-                val tripStationCount = jsonMapper.readValue(v, TripStationCount::class.java)
-                val value = TripStationSummaryInfo(k.window(), tripStationCount)
-                println("$value")
-                value.nToDocksRatio > P / 100.0
-//                true
-            }
-            .map { k, v ->
-//                val tripStationCount = jsonMapper.readValue(v, TripStationCount::class.java)
-//                val value = TripStationSummaryInfo(k.window(), tripStationCount)
-
-                KeyValue(k.key(), v.toString())
-            }
-            .to("anomalies-topic")
 
         val topology = streamsBuilder.build()
 
@@ -138,6 +72,7 @@ class KafkaConsumer(private val brokers: String) {
         props[StreamsConfig.DEFAULT_TIMESTAMP_EXTRACTOR_CLASS_CONFIG] = EventTimeExtractor::class.java
 
         val streams = KafkaStreams(topology, props)
+        streams.cleanUp()
         streams.start()
     }
 

@@ -16,7 +16,7 @@ import java.util.*
 
 fun main(args: Array<String>) {
     args.forEach { println(it) }
-    var folder = "./../../../src/com/bigdata/resources/producer"
+    var folder = "./src/com/bigdata/resources/producer"
     if (args.size > 1)
         folder = args[1]
     KafkaProducer("localhost:9092").produce(folder)
@@ -33,7 +33,6 @@ class KafkaProducer(brokers: String) {
     }.registerModule(JavaTimeModule())
 
     fun produce(folder: String) {
-//        val waitTimeBetweenIterationsMs = 1000L / ratePerSecond
 
         val files = File(folder)
 
@@ -56,10 +55,11 @@ class KafkaProducer(brokers: String) {
                     )
                 }
             }
+            .filter { it.stationId == 168 } // easier to show how works
             .forEach {
                 val trip = jsonMapper.writeValueAsString(it)
                 val futureResult = producer.send(ProducerRecord("input-topic", trip))
-                Thread.sleep(500)
+                Thread.sleep(1000)
                 futureResult.get()
                 println(it)
             }

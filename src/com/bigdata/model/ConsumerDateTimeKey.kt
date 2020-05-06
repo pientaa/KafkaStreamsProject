@@ -1,5 +1,6 @@
 package com.bigdata.model
 
+import com.bigdata.lib.jsonMapper
 import java.time.LocalDateTime
 
 data class ConsumerDateTimeKey(
@@ -10,4 +11,8 @@ data class ConsumerDateTimeKey(
         stationName = tripStation.stationName,
         eventTime = tripStation.tripTime
     )
+
+    override fun toString(): String {
+        return jsonMapper.writeValueAsString(this)
+    }
 }
