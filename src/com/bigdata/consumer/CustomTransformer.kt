@@ -11,7 +11,7 @@ import org.apache.kafka.streams.processor.ProcessorContext
 import org.apache.kafka.streams.processor.PunctuationType
 import org.apache.kafka.streams.state.KeyValueStore
 
-class CustomProcessor(
+class CustomTransformer(
     private val stateStoreName: String
 ) : Transformer<String, String, KeyValue<String, String>> {
 

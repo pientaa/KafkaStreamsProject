@@ -56,7 +56,7 @@ class KafkaConsumer(private val brokers: String) {
 
         tripStream
             .map { k, v -> KeyValue(k.toString(), v.toString()) }
-            .transform({ CustomProcessor("state-store") }, arrayOf("state-store"))
+            .transform({ CustomTransformer("state-store") }, arrayOf("state-store"))
             .foreach { k, v ->
                 println("$k, value: $v")
             }
