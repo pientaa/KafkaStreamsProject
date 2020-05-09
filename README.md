@@ -3,7 +3,7 @@
 Kafka broker on `localhost:9092` with topic `input-topic`
 
 ## Introduction
-This repository consist of `KafkaProducer` and `KafkaConsumer`. We produce events of rents and returns of rented bikes to the particular stations. This is simulated with interval of 0.5 second (measured in real time) between next two events.
+This repository consist of `KafkaProducer` and `KafkaConsumer`. We produce events of rentals and returns of rented bikes to the particular stations. This is simulated with interval of 0.5 second (measured in real time) between next two events.
 
 Then `KafkaConsumer` perform following aggregation.
 
